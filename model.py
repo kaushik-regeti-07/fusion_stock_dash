@@ -40,3 +40,4 @@ def predict_prices(ticker_symbol, days=10):
 
     except Exception as e:
         return [], [], f"Error: {str(e)}"
+

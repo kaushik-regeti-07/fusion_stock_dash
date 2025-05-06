@@ -1,3 +1,4 @@
+
 import dash
 from dash import dcc, html, Input, Output, State
 from datetime import datetime as dt
@@ -149,3 +150,4 @@ def forecast_prices(n_clicks, code, days):
 # Run the app
 if __name__ == '__main__':
     app.run(debug=True)
+
