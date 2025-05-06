@@ -1,0 +1,79 @@
+/* Reset styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Roboto", sans-serif;
+}
+
+/* Container layout */
+.container {
+  display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+}
+
+/* Left-side input panel */
+.inputs {
+  width: 25vw;
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  background-color: rgb(5, 107, 107);
+  padding: 20px;
+  color: white;
+}
+
+.inputs .input-box,
+.inputs .btn {
+  margin-top: 10px;
+  padding: 10px;
+  width: 90%;
+  border-radius: 5px;
+  border: none;
+}
+
+.inputs .btn {
+  background-color: #ffffff;
+  color: #056b6b;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.inputs .btn:hover {
+  background-color: #ddd;
+}
+
+/* Right-side content area */
+.content {
+  flex: 1;
+  padding: 30px;
+  background-color: #f7f7f7;
+  overflow-y: auto;
+}
+
+/* Header with logo and name */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.header img {
+  height: 60px;
+}
+
+.description_ticker {
+  margin-bottom: 20px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+/* Starting message */
+.start {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
