@@ -1,43 +1,57 @@
-import numpy as np
-import pandas as pd
-import yfinance as yf
-from sklearn.svm import SVR
-from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-from datetime import timedelta
+def prediction(stock, n_days):
+    import yfinance as yf
+    import pandas as pd
+    import numpy as np
+    from sklearn.model_selection import train_test_split, GridSearchCV
+    from sklearn.svm import SVR
+    from datetime import date, timedelta
+    import plotly.graph_objs as go
 
-def predict_prices(ticker_symbol, days=10):
-    try:
-        df = yf.download(ticker_symbol, period="60d")
-        if df.empty:
-            return [], [], "No data available for prediction."
+    df = yf.download(stock, period='60d')
+    df.reset_index(inplace=True)
+    df['Day'] = df.index
 
-        df = df.reset_index()
-        df["Day"] = np.arange(len(df))
+    X = [[i] for i in range(len(df))]
+    Y = df[['Close']]
 
-        # Prepare features and labels
-        X = df[["Day"]].values
-        y = df["Close"].values
+    x_train, x_test, y_train, y_test = train_test_split(X, Y, test_size=0.1, shuffle=False)
 
-        # Train-test split
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, shuffle=False)
+    gsc = GridSearchCV(
+        estimator=SVR(kernel='rbf'),
+        param_grid={
+            'C': [0.001, 0.01, 0.1, 1, 100, 1000],
+            'epsilon': [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 150, 1000],
+            'gamma': [0.0001, 0.001, 0.005, 0.1, 1, 3, 5, 8, 40, 100, 1000]
+        },
+        cv=5,
+        scoring='neg_mean_absolute_error',
+        verbose=0,
+        n_jobs=-1
+    )
 
-        # Hyperparameter tuning
-        param_grid = {"C": [1, 10], "epsilon": [0.1, 0.5], "gamma": ["scale", "auto"]}
-        grid = GridSearchCV(SVR(kernel='rbf'), param_grid, cv=3)
-        grid.fit(X_train, y_train)
+    y_train = y_train.values.ravel()
+    grid_result = gsc.fit(x_train, y_train)
+    best_params = grid_result.best_params_
+    best_svr = SVR(kernel='rbf', C=best_params["C"], epsilon=best_params["epsilon"], gamma=best_params["gamma"])
 
-        # Predict future
-        model = grid.best_estimator_
-        future_days = np.arange(len(df), len(df) + days).reshape(-1, 1)
-        future_preds = model.predict(future_days)
+    best_svr.fit(x_train, y_train)
 
-        # Prepare dates for plotting
-        last_date = df["Date"].iloc[-1]
-        future_dates = [last_date + timedelta(days=i + 1) for i in range(days)]
+    last_index = x_test[-1][0]
+    output_days = [[last_index + i + 1] for i in range(1, n_days)]
 
-        return future_dates, future_preds.tolist(), None
+    dates = [date.today() + timedelta(days=i) for i in range(1, n_days)]
 
-    except Exception as e:
-        return [], [], f"Error: {str(e)}"
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=best_svr.predict(output_days),
+        mode='lines+markers',
+        name='Predicted Close Price'
+    ))
+    fig.update_layout(
+        title=f"Predicted Close Price for Next {n_days - 1} Days",
+        xaxis_title="Date",
+        yaxis_title="Close Price"
+    )
 
+    return fig
