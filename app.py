@@ -1,153 +1,188 @@
-
 import dash
-from dash import dcc, html, Input, Output, State
+from dash import dcc, html
 from datetime import datetime as dt
-import pandas as pd
 import yfinance as yf
+from dash.dependencies import Input, Output, State
+from dash.exceptions import PreventUpdate
+import pandas as pd
 import plotly.express as px
-
-from model import predict_prices  # ML model import
-
-# Initialize Dash app and server
-app = dash.Dash(__name__)
-server = app.server
-
-# Web layout
-app.layout = html.Div(className='container', children=[
-
-    # Left Section: User Inputs
-    html.Div(className='inputs', children=[
-        html.P("Welcome to the Stock Dash App!", className="start"),
-
-        html.Div([
-            html.Label("Enter Stock Code:"),
-            dcc.Input(id="stock-code", type="text", placeholder="e.g., AAPL", className="input-box")
-        ]),
-
-        html.Div([
-            html.Label("Select Date Range:"),
-            dcc.DatePickerRange(
-                id='date-picker-range',
-                start_date=dt(2022, 1, 1),
-                end_date=dt.now().date()
-            )
-        ]),
-
-        html.Div([
-            html.Button("Get Stock Price", id='stock-button', n_clicks=0, className="btn"),
-            html.Button("Get Indicators", id='indicator-button', n_clicks=0, className="btn"),
-            html.Label("Number of Days to Forecast:"),
-            dcc.Input(id="forecast-days", type="number", min=1, placeholder="e.g., 10", className="input-box"),
-            html.Button("Forecast", id='forecast-button', n_clicks=0, className="btn")
-        ])
-    ]),
-
-    # Right Section: Display Content
-    html.Div(className='content', children=[
-        html.Div(className='header', children=[
-            html.Img(id="logo"),
-            html.H1(id="company-name")
-        ]),
-
-        html.Div(id="description", className="description_ticker"),
-
-        html.Div(id="graphs-content"),        # Stock Price Plot
-        html.Div(id="main-content"),          # Indicator Plot
-        html.Div(id="forecast-content")       # Forecast Plot
-    ])
-])
-
-# --- Callback to update company info ---
-@app.callback(
-    [Output("description", "children"),
-     Output("logo", "src"),
-     Output("company-name", "children")],
-    Input("stock-button", "n_clicks"),
-    State("stock-code", "value")
-)
-def update_company_info(n_clicks, code):
-    if not code:
-        return "Please enter a stock code.", "", ""
-    try:
-        ticker = yf.Ticker(code)
-        info = ticker.info
-        return info.get("longBusinessSummary", "N/A"), info.get("logo_url", ""), info.get("shortName", "N/A")
-    except Exception as e:
-        return "Failed to fetch data. Try a valid stock code.", "", ""
-
-# --- Callback to update stock price plot ---
-@app.callback(
-    Output("graphs-content", "children"),
-    Input("stock-button", "n_clicks"),
-    State("stock-code", "value"),
-    State("date-picker-range", "start_date"),
-    State("date-picker-range", "end_date")
-)
-def update_stock_graph(n_clicks, code, start, end):
-    if not code or not start or not end:
-        return html.P("Please provide stock code and date range.")
-    try:
-        df = yf.download(code, start=start, end=end)
-        df.reset_index(inplace=True)
-        fig = get_stock_price_fig(df)
-        return dcc.Graph(figure=fig)
-    except Exception:
-        return html.P("Error retrieving stock data.")
+from model import prediction
 
 def get_stock_price_fig(df):
-    fig = px.line(
-        df,
-        x="Date",
-        y=["Open", "Close"],
-        title="Opening and Closing Price vs Date"
-    )
+    fig = px.line(df, x="Date", y=["Close", "Open"], title="Closing and Opening Price vs Date")
     return fig
-
-# --- Callback to update indicator (EMA) plot ---
-@app.callback(
-    Output("main-content", "children"),
-    Input("indicator-button", "n_clicks"),
-    State("stock-code", "value"),
-    State("date-picker-range", "start_date"),
-    State("date-picker-range", "end_date")
-)
-def update_ema_graph(n_clicks, code, start, end):
-    if not code or not start or not end:
-        return html.P("Please provide stock code and date range.")
-    try:
-        df = yf.download(code, start=start, end=end)
-        df.reset_index(inplace=True)
-        fig = get_more(df)
-        return dcc.Graph(figure=fig)
-    except Exception:
-        return html.P("Error retrieving indicator data.")
 
 def get_more(df):
-    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
-    fig = px.line(df, x="Date", y="EMA_20", title="Exponential Moving Average (EMA 20) vs Date")
+    df['EWA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    fig = px.scatter(df, x="Date", y="EWA_20", title="Exponential Moving Average vs Date")
+    fig.update_traces(mode='lines+markers')
     return fig
 
-# --- Callback to forecast stock prices ---
+app = dash.Dash(__name__, external_stylesheets=[
+    "https://fonts.googleapis.com/css2?family=Roboto&display=swap"
+])
+server = app.server
+
+# 🎨 Define themes
+light_theme = {
+    "backgroundColor": "#ffffff",
+    "color": "#000000",
+    "backgroundImage": "url('https://www.transparenttextures.com/patterns/paper-fibers.png')"
+}
+
+dark_theme = {
+    "backgroundColor": "#111111",
+    "color": "#eeeeee",
+    "backgroundImage": "url('https://www.transparenttextures.com/patterns/diamond-upholstery.png')"
+}
+
+# ✅ NEW description styles per theme
+light_description = {
+    "color": "#000000",
+    "backgroundColor": "#ffffff",
+    "padding": "10px",
+    "borderRadius": "10px"
+}
+
+dark_description = {
+    "color": "#ffffff",
+    "backgroundColor": "#222222",
+    "padding": "10px",
+    "borderRadius": "10px"
+}
+
+app.layout = html.Div([
+    dcc.Store(id='theme-store', data='light'),
+    html.Div([
+        html.Button("Toggle Theme", id='toggle-theme', n_clicks=0, style={"margin": "10px"}),
+        html.P("Welcome to the Stock Dash App!", className="start"),
+        html.Div([
+            html.P("Input stock code: "),
+            html.Div([
+                dcc.Input(id="dropdown_tickers", type="text"),
+                html.Button("Submit", id='submit'),
+            ], className="form")
+        ], className="input-place"),
+        html.Div([
+            dcc.DatePickerRange(
+                id='my-date-picker-range',
+                min_date_allowed=dt(1995, 8, 5),
+                max_date_allowed=dt.now(),
+                initial_visible_month=dt.now(),
+                end_date=dt.now().date()
+            ),
+        ], className="date"),
+        html.Div([
+            html.Button("Stock Price", className="stock-btn", id="stock"),
+            html.Button("Indicators", className="indicators-btn", id="indicators"),
+            dcc.Input(id="n_days", type="text", placeholder="number of days"),
+            html.Button("Forecast", className="forecast-btn", id="forecast")
+        ], className="buttons"),
+    ], className="nav", id="nav-container"),
+
+    html.Div([
+        html.Div([
+            html.Img(id="logo"),
+            html.P(id="ticker")
+        ], className="header"),
+        html.Div(id="description", className="description_ticker"),
+        html.Div([], id="graphs-content"),
+        html.Div([], id="main-content"),
+        html.Div([], id="forecast-content")
+    ], className="content"),
+], className="container", id="main-container")
+
+# 🔥 Callback to toggle theme
 @app.callback(
-    Output("forecast-content", "children"),
-    Input("forecast-button", "n_clicks"),
-    State("stock-code", "value"),
-    State("forecast-days", "value")
+    Output("theme-store", "data"),
+    [Input("toggle-theme", "n_clicks")],
+    [State("theme-store", "data")]
 )
-def forecast_prices(n_clicks, code, days):
-    if not code or not days:
-        return html.P("Please enter stock code and number of days.")
-    
-    dates, preds, err = predict_prices(code, days)
-    if err:
-        return html.P(err)
+def toggle_theme(n_clicks, current_theme):
+    if n_clicks is None:
+        raise PreventUpdate
+    return "dark" if current_theme == "light" else "light"
 
-    df = pd.DataFrame({"Date": dates, "Predicted Close": preds})
-    fig = px.line(df, x="Date", y="Predicted Close", title="Forecasted Closing Prices")
+# ✅ Updated callback to apply description background too
+@app.callback(
+    Output("main-container", "style"),
+    Output("nav-container", "style"),
+    Output("description", "style"),
+    [Input("theme-store", "data")]
+)
+def update_theme(theme):
+    if theme == "dark":
+        return dark_theme, dark_theme, dark_description
+    return light_theme, light_theme, light_description
 
-    return dcc.Graph(figure=fig)
+# 🟢 Other callbacks unchanged
+@app.callback([
+    Output("description", "children"),
+    Output("logo", "src"),
+    Output("ticker", "children"),
+    Output("stock", "n_clicks"),
+    Output("indicators", "n_clicks"),
+    Output("forecast", "n_clicks")
+], [Input("submit", "n_clicks")], [State("dropdown_tickers", "value")])
+def update_data(n, val):
+    if n is None:
+        return ("Hey there! Please enter a legitimate stock code to get details.",
+                "https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg",
+                "Stonks", None, None, None)
+    if val is None:
+        raise PreventUpdate
+    ticker = yf.Ticker(val)
+    inf = ticker.info
+    logo_url = inf.get('logo_url', 'https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg')
+    short_name = inf.get('shortName', 'Unknown Company')
+    long_summary = inf.get('longBusinessSummary', 'No summary available')
+    return long_summary, logo_url, short_name, None, None, None
 
-# Run the app
+@app.callback([Output("graphs-content", "children")],
+              [Input("stock", "n_clicks"),
+               Input('my-date-picker-range', 'start_date'),
+               Input('my-date-picker-range', 'end_date')],
+              [State("dropdown_tickers", "value")])
+def stock_price(n, start_date, end_date, val):
+    if n is None or val is None:
+        return [""]
+    if start_date is not None:
+        df = yf.download(val, str(start_date), str(end_date))
+    else:
+        df = yf.download(val)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.reset_index(inplace=True)
+    fig = get_stock_price_fig(df)
+    return [dcc.Graph(figure=fig)]
+
+@app.callback([Output("main-content", "children")],
+              [Input("indicators", "n_clicks"),
+               Input('my-date-picker-range', 'start_date'),
+               Input('my-date-picker-range', 'end_date')],
+              [State("dropdown_tickers", "value")])
+def indicators(n, start_date, end_date, val):
+    if n is None or val is None:
+        return [""]
+    if start_date is None:
+        df_more = yf.download(val)
+    else:
+        df_more = yf.download(val, str(start_date), str(end_date))
+    if isinstance(df_more.columns, pd.MultiIndex):
+        df_more.columns = df_more.columns.get_level_values(0)
+    df_more.reset_index(inplace=True)
+    fig = get_more(df_more)
+    return [dcc.Graph(figure=fig)]
+
+@app.callback([Output("forecast-content", "children")],
+              [Input("forecast", "n_clicks")],
+              [State("n_days", "value"),
+               State("dropdown_tickers", "value")])
+def forecast(n, n_days, val):
+    if n is None or val is None:
+        return [""]
+    fig = prediction(val, int(n_days) + 1)
+    return [dcc.Graph(figure=fig)]
+
 if __name__ == '__main__':
     app.run(debug=True)
-
